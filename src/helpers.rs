@@ -113,8 +113,8 @@ pub fn sqrt_ratio_generic<F: PrimeField>(num: &F, div: &F) -> (Choice, F) {
     let sqrt_a = a.sqrt();
     let sqrt_b = b.sqrt();
 
-    let num_is_zero = num.is_zero();
-    let div_is_zero = div.is_zero();
+    let num_is_zero = num.is_zero_choice();
+    let div_is_zero = div.is_zero_choice();
     let is_square = sqrt_a.is_some();
     let is_nonsquare = sqrt_b.is_some();
     assert!(bool::from(

@@ -14,6 +14,10 @@ pub use batch::*;
 
 pub mod helpers;
 
+pub use plonky2_field;
+#[cfg(feature = "fri")]
+use plonky2_field::packable::Packable;
+
 #[cfg(feature = "derive")]
 #[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
 pub use ff_derive::PrimeField;
@@ -25,10 +29,15 @@ pub use bitvec::view::BitViewSized;
 #[cfg(feature = "bits")]
 use bitvec::{array::BitArray, order::Lsb0};
 
+#[cfg(not(feature = "fri"))]
 use core::fmt;
+#[cfg(not(feature = "fri"))]
 use core::iter::{Product, Sum};
-use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use core::ops::{Add, AddAssign, Mul, MulAssign, Sub};
+#[cfg(not(feature = "fri"))]
+use core::ops::{Neg, SubAssign};
 
+#[cfg(not(feature = "fri"))]
 use rand_core::RngCore;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 
@@ -38,6 +47,7 @@ use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 pub type FieldBits<V> = BitArray<V, Lsb0>;
 
 /// This trait represents an element of a field.
+#[cfg(not(feature = "fri"))]
 pub trait Field:
     Sized
     + Eq
@@ -80,6 +90,11 @@ pub trait Field:
     /// Returns true iff this element is zero.
     fn is_zero(&self) -> Choice {
         self.ct_eq(&Self::ZERO)
+    }
+
+    /// Returns true iff this element is zero.
+    fn is_zero_choice(&self) -> Choice {
+        self.is_zero()
     }
 
     /// Returns true iff this element is zero.
@@ -189,6 +204,30 @@ pub trait Field:
 
         res
     }
+}
+
+#[cfg(feature = "fri")]
+pub trait Field:
+    plonky2_field::types::Field
+    + ConditionallySelectable
+    + ConstantTimeEq
+    + for<'a> AddAssign<&'a Self>
+    + for<'a> MulAssign<&'a Self>
+    + for<'a> Add<&'a Self, Output = Self>
+    + for<'a> Sub<&'a Self, Output = Self>
+    + for<'a> Mul<&'a Self, Output = Self>
+    + Packable
+{
+    fn is_zero_choice(&self) -> Choice {
+        Choice::from(self.is_zero() as u8)
+    }
+    fn invert(&self) -> CtOption<Self>;
+
+    fn sqrt(&self) -> CtOption<Self>;
+
+    fn is_zero_vartime(&self) -> bool;
+
+    fn pow_vartime<S: AsRef<[u64]>>(&self, exp: S) -> Self;
 }
 
 /// This represents an element of a non-binary prime field.

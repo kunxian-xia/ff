@@ -37,13 +37,13 @@ where
         for p in iter {
             let q = *p;
             tmp.push((acc, p));
-            acc = F::conditional_select(&(acc * q), &acc, q.is_zero());
+            acc = F::conditional_select(&(acc * q), &acc, q.is_zero_choice());
         }
         acc = acc.invert().unwrap();
         let allinv = acc;
 
         for (tmp, p) in tmp.into_iter().rev() {
-            let skip = p.is_zero();
+            let skip = p.is_zero_choice();
 
             let tmp = tmp * acc;
             acc = F::conditional_select(&(acc * *p), &acc, skip);
@@ -77,14 +77,14 @@ impl BatchInverter {
         let mut acc = F::ONE;
         for (p, scratch) in elements.iter().zip(scratch_space.iter_mut()) {
             *scratch = acc;
-            acc = F::conditional_select(&(acc * *p), &acc, p.is_zero());
+            acc = F::conditional_select(&(acc * *p), &acc, p.is_zero_choice());
         }
         acc = acc.invert().unwrap();
         let allinv = acc;
 
         for (p, scratch) in elements.iter_mut().zip(scratch_space.iter()).rev() {
             let tmp = *scratch * acc;
-            let skip = p.is_zero();
+            let skip = p.is_zero_choice();
             acc = F::conditional_select(&(acc * *p), &acc, skip);
             *p = F::conditional_select(&tmp, &p, skip);
         }
@@ -113,7 +113,7 @@ impl BatchInverter {
         for item in items.iter_mut() {
             *(scratch_space)(item) = acc;
             let p = (element)(item);
-            acc = F::conditional_select(&(acc * *p), &acc, p.is_zero());
+            acc = F::conditional_select(&(acc * *p), &acc, p.is_zero_choice());
         }
         acc = acc.invert().unwrap();
         let allinv = acc;
@@ -121,7 +121,7 @@ impl BatchInverter {
         for item in items.iter_mut().rev() {
             let tmp = *(scratch_space)(item) * acc;
             let p = (element)(item);
-            let skip = p.is_zero();
+            let skip = p.is_zero_choice();
             acc = F::conditional_select(&(acc * *p), &acc, skip);
             *p = F::conditional_select(&tmp, &p, skip);
         }
