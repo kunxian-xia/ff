@@ -217,14 +217,14 @@ pub trait Field:
     + for<'a> Sub<&'a Self, Output = Self>
     + for<'a> Mul<&'a Self, Output = Self>
 {
-    const ZERO: Self;
-    const ONE: Self;
+    // const ZERO: Self;
+    // const ONE: Self;
 
     fn random(rng: impl RngCore) -> Self;
 
-    fn double(&self) -> Self;
+    // fn double(&self) -> Self;
 
-    fn square(&self) -> Self;
+    // fn square(&self) -> Self;
 
     fn sqrt_ratio(num: &Self, div: &Self) -> (Choice, Self);
 
