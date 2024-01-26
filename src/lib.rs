@@ -36,8 +36,8 @@ use core::iter::{Product, Sum};
 use core::ops::{Add, AddAssign, Mul, MulAssign, Sub};
 #[cfg(not(feature = "fri"))]
 use core::ops::{Neg, SubAssign};
+use plonky2_field::extension::Extendable;
 
-#[cfg(not(feature = "fri"))]
 use rand_core::RngCore;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 
@@ -208,7 +208,7 @@ pub trait Field:
 
 #[cfg(feature = "fri")]
 pub trait Field:
-    plonky2_field::types::Field
+    Packable
     + ConditionallySelectable
     + ConstantTimeEq
     + for<'a> AddAssign<&'a Self>
@@ -216,8 +216,22 @@ pub trait Field:
     + for<'a> Add<&'a Self, Output = Self>
     + for<'a> Sub<&'a Self, Output = Self>
     + for<'a> Mul<&'a Self, Output = Self>
-    + Packable
 {
+    const ZERO: Self;
+    const ONE: Self;
+
+    fn random(rng: impl RngCore) -> Self;
+
+    fn double(&self) -> Self;
+
+    fn square(&self) -> Self;
+
+    fn sqrt_ratio(num: &Self, div: &Self) -> (Choice, Self);
+
+    fn sqrt_alt(&self) -> (Choice, Self) {
+        Self::sqrt_ratio(self, &Self::ONE)
+    }
+
     fn is_zero_choice(&self) -> Choice {
         Choice::from(self.is_zero() as u8)
     }
