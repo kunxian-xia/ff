@@ -4,7 +4,7 @@
 #![no_std]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(rustdoc::broken_intra_doc_links)]
-#![forbid(unsafe_code)]
+// #![forbid(unsafe_code)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -13,10 +13,6 @@ mod batch;
 pub use batch::*;
 
 pub mod helpers;
-
-pub use plonky2_field;
-#[cfg(feature = "fri")]
-use plonky2_field::packable::Packable;
 
 #[cfg(feature = "derive")]
 #[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
@@ -29,14 +25,10 @@ pub use bitvec::view::BitViewSized;
 #[cfg(feature = "bits")]
 use bitvec::{array::BitArray, order::Lsb0};
 
-#[cfg(not(feature = "fri"))]
-use core::fmt;
-#[cfg(not(feature = "fri"))]
+use core::fmt::Debug;
 use core::iter::{Product, Sum};
-use core::ops::{Add, AddAssign, Mul, MulAssign, Sub};
-#[cfg(not(feature = "fri"))]
-use core::ops::{Neg, SubAssign};
-use plonky2_field::extension::Extendable;
+use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use core::slice;
 
 use rand_core::RngCore;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
@@ -47,7 +39,6 @@ use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 pub type FieldBits<V> = BitArray<V, Lsb0>;
 
 /// This trait represents an element of a field.
-#[cfg(not(feature = "fri"))]
 pub trait Field:
     Sized
     + Eq
@@ -56,7 +47,7 @@ pub trait Field:
     + Default
     + Send
     + Sync
-    + fmt::Debug
+    + Debug
     + 'static
     + ConditionallySelectable
     + ConstantTimeEq
@@ -77,6 +68,7 @@ pub trait Field:
     + for<'a> AddAssign<&'a Self>
     + for<'a> SubAssign<&'a Self>
     + for<'a> MulAssign<&'a Self>
+    + Packable
 {
     /// The zero element of the field, the additive identity.
     const ZERO: Self;
@@ -206,42 +198,147 @@ pub trait Field:
     }
 }
 
-#[cfg(feature = "fri")]
-pub trait Field:
-    Packable
-    + ConditionallySelectable
-    + ConstantTimeEq
-    + for<'a> AddAssign<&'a Self>
-    + for<'a> MulAssign<&'a Self>
-    + for<'a> Add<&'a Self, Output = Self>
-    + for<'a> Sub<&'a Self, Output = Self>
-    + for<'a> Mul<&'a Self, Output = Self>
+// SIMD related traits
+// Most of them are borrowed from plonky2_field
+pub trait PackedField:
+    'static
+    + Copy
+    + Debug
+    + Default
+    + From<Self::Scalar>
+    + Add<Self, Output = Self>
+    + Add<Self::Scalar, Output = Self>
+    + AddAssign<Self>
+    + AddAssign<Self::Scalar>
+    + Sub<Self, Output = Self>
+    + Sub<Self::Scalar, Output = Self>
+    + SubAssign<Self>
+    + SubAssign<Self::Scalar>
+    + Mul<Self, Output = Self>
+    + Mul<Self::Scalar, Output = Self>
+    + MulAssign<Self>
+    + MulAssign<Self::Scalar>
+    + Neg<Output = Self>
+    + Sum
+    + Product
+    + Send
+    + Sync
+    + Packable
 {
-    // const ZERO: Self;
-    // const ONE: Self;
+    type Scalar: Field;
 
-    fn random(rng: impl RngCore) -> Self;
+    const WIDTH: usize;
+    const ZEROS: Self;
+    const ONES: Self;
 
-    // fn double(&self) -> Self;
+    fn from_slice(slice: &[Self::Scalar]) -> &Self;
+    fn from_slice_mut(slice: &mut [Self::Scalar]) -> &mut Self;
+    fn as_slice(&self) -> &[Self::Scalar];
+    fn as_slice_mut(&mut self) -> &mut [Self::Scalar];
 
-    // fn square(&self) -> Self;
+    fn square(&self) -> Self {
+        *self * *self
+    }
+    fn pack_slice(buf: &[Self::Scalar]) -> &[Self] {
+        assert!(
+            buf.len() % Self::WIDTH == 0,
+            "Slice length (got {}) must be a multiple of packed field width ({}).",
+            buf.len(),
+            Self::WIDTH
+        );
+        let buf_ptr = buf.as_ptr().cast::<Self>();
+        let n = buf.len() / Self::WIDTH;
+        unsafe { slice::from_raw_parts(buf_ptr, n) }
+    }
+    fn pack_slice_mut(buf: &mut [Self::Scalar]) -> &mut [Self] {
+        assert!(
+            buf.len() % Self::WIDTH == 0,
+            "Slice length (got {}) must be a multiple of packed field width ({}).",
+            buf.len(),
+            Self::WIDTH
+        );
+        let buf_ptr = buf.as_mut_ptr().cast::<Self>();
+        let n = buf.len() / Self::WIDTH;
+        unsafe { slice::from_raw_parts_mut(buf_ptr, n) }
+    }
+}
 
-    fn sqrt_ratio(num: &Self, div: &Self) -> (Choice, Self);
+impl<F: Field> PackedField for F {
+    type Scalar = Self;
 
-    fn sqrt_alt(&self) -> (Choice, Self) {
-        Self::sqrt_ratio(self, &Self::ONE)
+    const WIDTH: usize = 1;
+    const ZEROS: Self = F::ZERO;
+    const ONES: Self = F::ONE;
+
+    fn from_slice(slice: &[Self::Scalar]) -> &Self {
+        &slice[0]
+    }
+    fn from_slice_mut(slice: &mut [Self::Scalar]) -> &mut Self {
+        &mut slice[0]
+    }
+    fn as_slice(&self) -> &[Self::Scalar] {
+        slice::from_ref(self)
+    }
+    fn as_slice_mut(&mut self) -> &mut [Self::Scalar] {
+        slice::from_mut(self)
+    }
+}
+
+pub trait Packable {
+    type Packing: PackedField;
+}
+
+impl<F: Field> Packable for F {
+    type Packing = F;
+}
+
+// Extension field traits
+// Most of them are borrowed from plonky2_field too
+pub trait FieldExtension<const D: usize>: Field {
+    type BaseField: Field;
+
+    fn to_basefield_array(&self) -> [Self::BaseField; D];
+
+    fn from_basefield_array(arr: [Self::BaseField; D]) -> Self;
+
+    fn from_basefield(x: Self::BaseField) -> Self;
+
+    fn is_in_basefield(&self) -> bool {
+        self.to_basefield_array()[1..]
+            .iter()
+            .all(|x| x.is_zero().into())
     }
 
-    fn is_zero_choice(&self) -> Choice {
-        Choice::from(self.is_zero() as u8)
+    fn scalar_mul(&self, scalar: Self::BaseField) -> Self {
+        let mut res = self.to_basefield_array();
+        res.iter_mut().for_each(|x| {
+            *x *= scalar;
+        });
+        Self::from_basefield_array(res)
     }
-    fn invert(&self) -> CtOption<Self>;
+}
+pub trait Extendable<const D: usize>: Field + Sized {
+    type Extension: FieldExtension<D>;
+}
 
-    fn sqrt(&self) -> CtOption<Self>;
+impl<F: Field> FieldExtension<1> for F {
+    type BaseField = F;
 
-    fn is_zero_vartime(&self) -> bool;
+    fn to_basefield_array(&self) -> [Self::BaseField; 1] {
+        [*self]
+    }
 
-    fn pow_vartime<S: AsRef<[u64]>>(&self, exp: S) -> Self;
+    fn from_basefield_array(arr: [Self::BaseField; 1]) -> Self {
+        arr[0]
+    }
+
+    fn from_basefield(x: Self::BaseField) -> Self {
+        x
+    }
+}
+
+impl<F: Field> Extendable<1> for F {
+    type Extension = F;
 }
 
 /// This represents an element of a non-binary prime field.
